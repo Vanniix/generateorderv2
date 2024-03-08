@@ -29,7 +29,6 @@ _I'm not a developer, but I enjoy creating tools that might simplify life for ot
    - The script kickstarts the process by creating a 'traits_info.xlsx' spreadsheet based on your folder structure.
    - Leaving the rarity field empty defaults to a random rarity assignment.
    - If opting for specific rarity percentages, ensure the collective rarity across all traits within a type equals 100%.
-   - Including 'Yes' for the 'None' trait it should be added in your rarity percentages.
    - To prevent certain traits from pairing in the generated metadata, list the trait numbers in the 'Avoid Traits' column, separating multiple traits with commas.
 
 4. **Generating Metadata**:
