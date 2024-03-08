@@ -22,7 +22,7 @@ _I'm not a developer, but I enjoy creating tools that might simplify life for ot
    - Install the required `openpyxl` library using the command: `pip install openpyxl`.
 
 2. **Configuration**:
-   - Specify the `ROOT_DIRECTORY` within the script (default set as 'Content'). This directory should host subdirectories, each symbolizing a different trait type, with individual files within these subfolders representing the traits.
+   - Specify the `ROOT_DIRECTORY` within the script (default set as 'traits'). This directory should host subdirectories, each symbolizing a different trait type, with individual files within these subfolders representing the traits.
 
 3. **Running the Script**:
    - Initiate the script by executing `python generateorder.py` in your terminal.

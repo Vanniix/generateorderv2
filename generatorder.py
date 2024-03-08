@@ -6,7 +6,7 @@ import hashlib
 from openpyxl import Workbook, load_workbook
 
 # ======================== CONFIGURATION ========================
-ROOT_DIRECTORY = 'Content'  # Location of your folder if not in the same directory
+ROOT_DIRECTORY = 'traits'  # Location of your folder if not in the same directory
 
 
 # ======================== UTILITY FUNCTIONS ========================
@@ -72,7 +72,7 @@ def load_traits_info():
             errors.append(f"Row {row_index}: Invalid Inscription ID format.")
             continue
 
-        weight = 0
+        weight = 1
         if rarity != '':
             try:
                 weight = float(rarity)
@@ -298,7 +298,7 @@ def main():
     print("Collection Metadata Generator\n")
 
     if not os.path.exists("traits_info.xlsx"):
-        trait_types = sorted([x for x in os.listdir(ROOT_DIRECTORY) if os.path.isdir(x)],
+        trait_types = sorted([x for x in os.listdir(ROOT_DIRECTORY) if os.path.isdir(os.path.join(ROOT_DIRECTORY, x))],
                              key=lambda x: (int(x.split('.')[0]), x.split('.')[1]))
         traits_dict = {}
 
@@ -306,7 +306,6 @@ def main():
             trait_type_name = trait_type.split('. ')[1]
             traits = os.listdir(os.path.join(ROOT_DIRECTORY, trait_type))
             traits_dict[trait_type_name] = [trait.split('.')[0] for trait in traits]
-
         create_spreadsheet(traits_dict)
 
     input("\nPress Enter after you have updated the 'traits_info.xlsx' file with the required information...")
