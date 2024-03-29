@@ -3,18 +3,41 @@ import random
 import json
 import re
 import hashlib
+import time
+
 from openpyxl import Workbook, load_workbook
+from dataclasses import dataclass
 
 # ======================== CONFIGURATION ========================
 ROOT_DIRECTORY = 'traits'  # Location of your folder if not in the same directory
 
 
+# ======================== TYPES ========================
+@dataclass
+class TraitInfo:
+    inscription_id: str
+    number: int
+    type: str
+    name: str
+    weight: float
+    blacklist: set[int]
+    whitelist: set[int]
+
+    def __hash__(self):
+        return hash((self.type, self.name))
+
+
+type TraitsInfo = dict[str, dict[str, TraitInfo]]
+type TraitsMapping = dict[int, TraitInfo]
+type FormattedInscription = list[dict[str, str]]
+
+
 # ======================== UTILITY FUNCTIONS ========================
-def validate_inscription_id(inscription_id):
+def validate_inscription_id(inscription_id: str) -> bool:
     return re.match(r"^[\da-fA-F]{64}i\d+$", inscription_id) is not None
 
 
-def get_positive_integer(message):
+def get_positive_integer(message: str) -> int:
     while True:
         try:
             value = int(input(message))
@@ -27,16 +50,27 @@ def get_positive_integer(message):
 
 
 # ======================== SPREADSHEET MANAGEMENT ========================
-def create_spreadsheet(traits_dict):
+def create_spreadsheet(traits_dict: dict[str, list[str]]) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Traits Information"
 
+    # Link to instructions, and merge cells with link in it
+    sheet['A1'].value = 'Click here for detailed instructions on how to fill this out'
+    sheet['A1'].hyperlink = 'https://github.com/itsFrankenSense/generateorderv2/blob/main/README.md#how-to-use'
+    sheet['A1'].style = 'Hyperlink'
+    sheet.merge_cells('A1:C1')
+
     headers = [
-        "Trait Number", "Trait Type", "Trait", "Inscription ID", "Rarity (%)",
-        "Avoid Traits (use Trait Numbers, comma-separated)"
+        "Number", "Trait Type", "Trait Name", "Rarity (%)",
+        "Blacklist", "Whitelist", "Inscription ID"
     ]
     sheet.append(headers)
+
+    # Widen some columns to make it easier to work with
+    widths = [8, 20, 20, 10, 15, 10, 40]
+    for i, width in enumerate(widths):
+        sheet.column_dimensions[chr(ord('A') + i)].width = width
 
     trait_number = 1
     for trait_type, traits in traits_dict.items():
@@ -52,20 +86,59 @@ def create_spreadsheet(traits_dict):
           "Please fill in the required information in this file before proceeding.")
 
 
-def load_traits_info():
+def parse_int_set(comma_separated_list: str, error_name: str) -> set[int]:
+    number_list = set()
+    str_list = [x.strip() for x in comma_separated_list.split(',') if len(x.strip()) > 0]
+
+    for potential_number in str_list:
+        try:
+            number_list.add(int(potential_number))
+        except ValueError:
+            raise Exception(
+                f"{error_name} contains invalid entry '{potential_number}'. Only whole numbers are allowed.")
+    return number_list
+
+
+def convert_whitelist_to_blacklist(traits: TraitsInfo, trait_mapping: TraitsMapping) -> None:
+    # A whitelist is the inverse of a blacklist, so for each whitelist,
+    # we add to the blacklist everything but the whitelist
+    for trait_group in traits.values():
+        for trait in trait_group.values():
+            whitelist = [trait_mapping[w] for w in trait.whitelist]
+            while len(whitelist) > 0:
+                # get other whitelisted traits in the same type
+                trait_type = whitelist[0].type
+                if trait_type == trait.type:
+                    raise Exception(f'{trait.type}/{trait.name}: Cannot whitelist two traits in the same trait type, '
+                                    'as traits in the same trait type never generate together')
+
+                whitelisted_traits = set([t for t in whitelist if t.type == trait_type])
+                equivalent_blacklist = [t.number for t in traits[trait_type].values() if t not in whitelisted_traits]
+                trait.blacklist.update(equivalent_blacklist)
+                whitelist = [x for x in whitelist if x not in whitelisted_traits]
+
+
+def load_traits_info() -> tuple[TraitsInfo, TraitsMapping]:
     workbook = load_workbook("traits_info.xlsx")
     sheet = workbook.active
 
-    all_traits_info = {}
-    trait_number_mapping = {}
+    all_traits_info: TraitsInfo = {}
+    trait_number_mapping: TraitsMapping = {}
     errors = []
-    cumulative_weights = {}
+    cumulative_weights: dict[str, float] = {}
 
-    for row_index, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+    # Determine the row with the headers (in case user deletes the top row that has the link)
+    header_index = 1
+    for row_index, row in enumerate(sheet.iter_rows(values_only=True)):
+        if row[0] == 'Number':
+            header_index = row_index + 1
+            break
+
+    for row_index, row in enumerate(sheet.iter_rows(min_row=header_index+1, values_only=True), start=header_index+1):
         if not row or not any(row):
             continue
 
-        trait_number, trait_type, trait, inscription_id, rarity, avoid_traits = \
+        trait_number, trait_type, trait_name, rarity, blacklist, whitelist, inscription_id = \
             (item if item is not None else '' for item in row)
 
         if inscription_id and not validate_inscription_id(inscription_id):
@@ -85,25 +158,22 @@ def load_traits_info():
 
         cumulative_weights[trait_type] = cumulative_weights.get(trait_type, 0) + weight
 
-        avoid_list = []
-        if avoid_traits:
-            avoid_traits_str = str(avoid_traits)
-            avoid_traits_list = avoid_traits_str.split(',') if ',' in avoid_traits_str else [avoid_traits_str]
+        blacklist_set, whitelist_set = set(), set()
+        try:
+            blacklist_set = parse_int_set(str(blacklist), 'Blacklist')
+        except Exception as e:
+            errors.append(f'Row {row_index}: {e}')
 
-            for potential_number in avoid_traits_list:
-                stripped_value = potential_number.strip()
-                try:
-                    number_value = float(stripped_value)
-                    if number_value.is_integer():
-                        avoid_list.append(int(number_value))
-                    else:
-                        errors.append(f"Row {row_index}: Avoid Traits contains invalid entry '{stripped_value}'. "
-                                      f"Only whole numbers are allowed.")
-                        break
-                except ValueError:
-                    errors.append(f"Row {row_index}: Avoid Traits contains invalid entry '{stripped_value}'. "
-                                  f"Only numbers are allowed.")
-                    break
+        try:
+            whitelist_set = parse_int_set(str(whitelist), 'Whitelist')
+        except Exception as e:
+            errors.append(f'Row {row_index}: {e}')
+
+        intersection = whitelist_set & blacklist_set
+        if len(intersection) > 0:
+            errors.append(
+                f'Row {row_index}: These traits are both whitelisted and blacklisted: '
+                f'{",".join([str(x) for x in intersection])}. You cannot whitelist and blacklist the same trait')
 
         if errors:
             continue
@@ -111,18 +181,27 @@ def load_traits_info():
         if trait_type not in all_traits_info:
             all_traits_info[trait_type] = {}
 
-        all_traits_info[trait_type][trait] = {
-            "inscription_id": inscription_id,
-            "weight": weight,
-            "avoid_traits": avoid_list
-        }
-
-        trait_number_mapping[int(trait_number)] = (trait_type, trait)
+        trait = TraitInfo(
+            inscription_id=inscription_id,
+            number=int(trait_number),
+            type=trait_type,
+            name=trait_name,
+            weight=weight,
+            blacklist=blacklist_set,
+            whitelist=whitelist_set
+        )
+        all_traits_info[trait.type][trait.name] = trait
+        trait_number_mapping[trait.number] = trait
 
     # Normalise weights so they add to 1
     for trait_type, total_weight in cumulative_weights.items():
         for trait_name, trait_info in all_traits_info[trait_type].items():
-            trait_info['weight'] /= total_weight
+            trait_info.weight /= total_weight
+
+    try:
+        convert_whitelist_to_blacklist(all_traits_info, trait_number_mapping)
+    except Exception as e:
+        errors.append(str(e))
 
     if errors:
         print("\nErrors were found in the spreadsheet. Please review the messages below.")
@@ -135,34 +214,25 @@ def load_traits_info():
 
 
 # ======================== VALIDATION FUNCTIONS ========================
-def validate_inscription_avoidance(inscription_collection, all_traits_info, trait_number_mapping):
+def validate_inscription_avoidance(inscription_collection: list[FormattedInscription], all_traits_info: TraitsInfo):
     inconsistencies = []
 
     for inscription_index, inscription in enumerate(inscription_collection, start=1):
         current_inscription_trait_numbers = set()
 
-        for trait in inscription:
-            trait_type = trait["trait_type"]
-            trait_value = trait["value"]
-            trait_number = next((number for number, (t_type, t_name) in trait_number_mapping.items()
-                                 if t_type == trait_type and t_name == trait_value), None)
+        for formatted_trait in inscription:
+            trait = all_traits_info[formatted_trait["trait_type"]][formatted_trait["value"]]
+            current_inscription_trait_numbers.add(trait.number)
 
-            if trait_number is not None:
-                current_inscription_trait_numbers.add(trait_number)
-
-        for trait in inscription:
-            trait_type = trait["trait_type"]
-            trait_value = trait["value"]
-            trait_details = all_traits_info[trait_type][trait_value]
-
-            avoid_traits = set(trait_details.get("avoid_traits", []))
-            conflicting_traits = current_inscription_trait_numbers & avoid_traits
+        for formatted_trait in inscription:
+            trait = all_traits_info[formatted_trait["trait_type"]][formatted_trait["value"]]
+            conflicting_traits = current_inscription_trait_numbers & trait.blacklist
 
             if conflicting_traits:
                 conflicts = [f"Trait #{num}" for num in conflicting_traits]
                 inconsistency_info = {
                     "Inscription_number": inscription_index,
-                    "Trait": f"{trait_type} - {trait_value}",
+                    "Trait": f"{trait.type} - {trait.name}",
                     "Conflicts": conflicts
                 }
                 inconsistencies.append(inconsistency_info)
@@ -170,82 +240,88 @@ def validate_inscription_avoidance(inscription_collection, all_traits_info, trai
     return inconsistencies
 
 
-def validate_traits(selected_traits, all_traits_info, trait_number_mapping):
-    for trait_type, trait_name in selected_traits.items():
-        current_trait_info = all_traits_info[trait_type][trait_name]
-        avoid_list = current_trait_info.get("avoid_traits", [])
-
-        for avoid_trait_number in avoid_list:
-            avoid_trait_type, avoid_trait_name = trait_number_mapping[avoid_trait_number]
-
-            if selected_traits.get(avoid_trait_type) == avoid_trait_name:
+def validate_traits(selected_traits: list[TraitInfo], trait_number_mapping: TraitsMapping):
+    for trait in selected_traits:
+        for blacklist_number in trait.blacklist:
+            blacklist_trait = trait_number_mapping[blacklist_number]
+            if blacklist_trait in selected_traits:
                 return False
 
     return True
 
 
 # ======================== METADATA GENERATION ========================
-def generate_inscriptions(all_traits_info, trait_number_mapping, num_inscriptions):
-    inscription_collection = []
+def generate_inscriptions(
+        all_traits_info: TraitsInfo, trait_number_mapping: TraitsMapping, num_inscriptions: int
+) -> tuple[list[FormattedInscription], dict, dict[int, int]]:
+    inscription_collection: list[FormattedInscription] = []
     traits_usage = {
         trait_type: {
-            trait: {
+            trait_name: {
                 "count": 0,
-                "rarity": f"{traits_info[trait]['weight'] * 100:.2f}"
-            } for trait in traits_info
+                "rarity": f"{trait.weight * 100:.2f}"
+            } for trait_name, trait in traits_info.items()
         } for trait_type, traits_info in all_traits_info.items()
     }
     generated_hashes = set()
     trait_count_distribution = {}
 
+    # Provide user with update every second for long-running generations
+    last_update_time = time.time()
+
     for _ in range(num_inscriptions):
         generation_attempts = 0
         while True:
-            inscription_traits = {}
-            formatted_traits = []
-            current_avoid_list = []
+            if time.time() > last_update_time + 1:
+                last_update_time = time.time()
+                print(f'Generated {len(inscription_collection)}/{num_inscriptions}')
 
-            for trait_type, traits in all_traits_info.items():
-                available_traits = {trait_name: trait_details for trait_name, trait_details in traits.items()
-                                    if trait_number_mapping.get((trait_type, trait_name)) not in current_avoid_list}
+            inscription_traits: list[TraitInfo] = []
+            formatted_traits: FormattedInscription = []
+            current_avoid_list: list[int] = []
 
-                if not available_traits:
-                    raise Exception(f"Conflict in 'Avoid Traits' rules prevents generation of valid metadata. "
-                                    f"Please revise the rules.")
+            valid_combination = True
+            for trait_group in all_traits_info.values():
+                available_traits = [trait for trait in trait_group.values()
+                                    if trait.number not in current_avoid_list
+                                    and len(trait.blacklist & set([t.number for t in inscription_traits])) == 0]
 
-                weights = []
-                trait_names = []
+                if len(available_traits) == 0:
+                    valid_combination = False
+                    break
 
-                for trait_name, trait_info in available_traits.items():
+                weights: list[float] = []
+
+                for trait in available_traits:
                     # Dynamic weight calculation. The weights are recalculated each time based on the current trait
                     # usage, so if trait exclusions are skewing the trait distribution, the weights are calculated to
                     # correct for it
-                    weight = trait_info["weight"]
-                    if weight == 0:
+                    if trait.weight == 0:
                         weights.append(0)
                     else:
-                        expected_number = num_inscriptions * weight
+                        expected_number = num_inscriptions * trait.weight
                         # This is the number needed to be generated to reach the desired rarity. We add 1 to introduce
                         # a bit of extra entropy, otherwise it gets stuck generating the same set of traits towards
                         # the end
-                        weights.append(max(0, expected_number - traits_usage[trait_type][trait_name]["count"]) + 1)
+                        weights.append(max(0.0, expected_number - traits_usage[trait.type][trait.name]["count"]) + 1)
 
-                    trait_names.append(trait_name)
+                if sum(weights) == 0:
+                    valid_combination = False
+                    break
 
-                selected_trait = random.choices(trait_names, weights=weights)[0]
-                selected_trait_info = traits[selected_trait]
+                selected_trait: TraitInfo = random.choices(available_traits, weights=weights)[0]
 
-                current_avoid_list.extend(selected_trait_info.get("avoid_traits", []))
-
-                inscription_traits[trait_type] = selected_trait
-                if selected_trait != 'none':
+                current_avoid_list.extend(selected_trait.blacklist)
+                inscription_traits.append(selected_trait)
+                if selected_trait.name != 'none':
                     formatted_traits.append({
-                        "trait_type": trait_type,
-                        "value": selected_trait
+                        "trait_type": selected_trait.type,
+                        "value": selected_trait.name
                     })
 
-            inscription_hash = hashlib.sha256(str(inscription_traits).encode()).hexdigest()
-            if inscription_hash in generated_hashes:
+            string_repr = str([(trait.type, trait.name) for trait in inscription_traits])
+            inscription_hash = hashlib.sha256(string_repr.encode()).hexdigest()
+            if inscription_hash in generated_hashes or not valid_combination:
                 generation_attempts += 1
 
                 if generation_attempts >= 10000:
@@ -257,11 +333,9 @@ def generate_inscriptions(all_traits_info, trait_number_mapping, num_inscription
                 continue
 
             generated_hashes.add(inscription_hash)
-
-            valid_inscription = validate_traits(inscription_traits, all_traits_info, trait_number_mapping)
-            if valid_inscription:
-                for trait_type, selected_trait in inscription_traits.items():
-                    traits_usage[trait_type][selected_trait]["count"] += 1
+            if validate_traits(inscription_traits, trait_number_mapping):
+                for trait in inscription_traits:
+                    traits_usage[trait.type][trait.name]["count"] += 1
 
                 num_traits = len(inscription_traits)
 
@@ -300,12 +374,13 @@ def main():
     if not os.path.exists("traits_info.xlsx"):
         trait_types = sorted([x for x in os.listdir(ROOT_DIRECTORY) if os.path.isdir(os.path.join(ROOT_DIRECTORY, x))],
                              key=lambda x: (int(x.split('.')[0]), x.split('.')[1]))
-        traits_dict = {}
+        traits_dict: dict[str, list[str]] = {}
 
         for trait_type in trait_types:
             trait_type_name = trait_type.split('. ')[1]
-            traits = os.listdir(os.path.join(ROOT_DIRECTORY, trait_type))
-            traits_dict[trait_type_name] = [trait.split('.')[0] for trait in traits]
+            traits = sorted(os.listdir(os.path.join(ROOT_DIRECTORY, trait_type)))
+            traits = [trait.split('.')[0] for trait in traits]
+            traits_dict[trait_type_name] = [trait for trait in traits if len(trait) > 0]
         create_spreadsheet(traits_dict)
 
     input("\nPress Enter after you have updated the 'traits_info.xlsx' file with the required information...")
@@ -313,42 +388,39 @@ def main():
     all_traits_info, trait_number_mapping = load_traits_info()
     num_inscriptions = get_positive_integer("\nEnter the number of Inscriptions you want to generate metadata for: ")
 
-    try:
-        inscription_collection, traits_usage_statistics, trait_count_distribution = \
-            generate_inscriptions(all_traits_info, trait_number_mapping, num_inscriptions)
+    inscription_collection, traits_usage_statistics, trait_count_distribution = \
+        generate_inscriptions(all_traits_info, trait_number_mapping, num_inscriptions)
 
-        inconsistencies = validate_inscription_avoidance(inscription_collection, all_traits_info, trait_number_mapping)
+    inconsistencies = validate_inscription_avoidance(inscription_collection, all_traits_info)
 
-        if inconsistencies:
-            print("\nInconsistencies found in trait avoidance rules:")
-            for inconsistency in inconsistencies:
-                print(f"- {inconsistency}")
+    if inconsistencies:
+        print("\nInconsistencies found in trait avoidance rules:")
+        for inconsistency in inconsistencies:
+            print(f"- {inconsistency}")
 
-        with open('metadata.json', 'w') as file:
-            json.dump(inscription_collection, file, indent=4)
+    with open('metadata.json', 'w') as file:
+        json.dump(inscription_collection, file, indent=4)
 
-        traits_inscription_mapping = {}
-        for trait_type, traits in all_traits_info.items():
-            traits_inscription_mapping[trait_type] = {trait: info["inscription_id"] for trait, info in traits.items()}
+    traits_inscription_mapping = {}
+    for trait_type, traits in all_traits_info.items():
+        traits_inscription_mapping[trait_type] = {trait.name: trait.inscription_id for trait in traits.values()}
 
-        with open('traits.json', 'w') as file:
-            json.dump(traits_inscription_mapping, file, indent=4)
+    with open('traits.json', 'w') as file:
+        json.dump(traits_inscription_mapping, file, indent=4)
 
-        # Prepare the summary for trait_usage_statistics.json
-        summary = {
-            "Total_inscriptions": num_inscriptions,
-            "Trait_count_distribution": {f"{count}_traits": f"{amount} inscriptions"
-                                         for count, amount in trait_count_distribution.items()},
-            "Traits_usage": traits_usage_statistics
-        }
+    # Prepare the summary for trait_usage_statistics.json
+    summary = {
+        "Total_inscriptions": num_inscriptions,
+        "Trait_count_distribution": {f"{count}_traits": f"{amount} inscriptions"
+                                     for count, amount in trait_count_distribution.items()},
+        "Traits_usage": traits_usage_statistics
+    }
 
-        with open('trait_usage_statistics.json', 'w') as file:
-            json.dump(summary, file, indent=4)
+    with open('trait_usage_statistics.json', 'w') as file:
+        json.dump(summary, file, indent=4)
 
-        print("\nInscription generation is complete. "
-              "Check 'metadata.json', 'traits.json', and 'trait_usage_statistics.json' for the collection.")
-    except Exception as e:
-        raise e
+    print("\nInscription generation is complete. "
+          "Check 'metadata.json', 'traits.json', and 'trait_usage_statistics.json' for the collection.")
 
 
 if __name__ == '__main__':
