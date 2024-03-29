@@ -4,6 +4,7 @@ import json
 import re
 import hashlib
 import time
+from typing import List, Set, Dict, Tuple
 
 from openpyxl import Workbook, load_workbook
 from dataclasses import dataclass
@@ -20,16 +21,16 @@ class TraitInfo:
     type: str
     name: str
     weight: float
-    blacklist: set[int]
-    whitelist: set[int]
+    blacklist: Set[int]
+    whitelist: Set[int]
 
     def __hash__(self):
         return hash((self.type, self.name))
 
 
-type TraitsInfo = dict[str, dict[str, TraitInfo]]
-type TraitsMapping = dict[int, TraitInfo]
-type FormattedInscription = list[dict[str, str]]
+TraitsInfo = Dict[str, Dict[str, TraitInfo]]
+TraitsMapping = Dict[int, TraitInfo]
+FormattedInscription = List[Dict[str, str]]
 
 
 # ======================== UTILITY FUNCTIONS ========================
@@ -50,7 +51,7 @@ def get_positive_integer(message: str) -> int:
 
 
 # ======================== SPREADSHEET MANAGEMENT ========================
-def create_spreadsheet(traits_dict: dict[str, list[str]]) -> None:
+def create_spreadsheet(traits_dict: Dict[str, List[str]]) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Traits Information"
@@ -86,7 +87,7 @@ def create_spreadsheet(traits_dict: dict[str, list[str]]) -> None:
           "Please fill in the required information in this file before proceeding.")
 
 
-def parse_int_set(comma_separated_list: str, error_name: str) -> set[int]:
+def parse_int_set(comma_separated_list: str, error_name: str) -> Set[int]:
     number_list = set()
     str_list = [x.strip() for x in comma_separated_list.split(',') if len(x.strip()) > 0]
 
@@ -118,14 +119,14 @@ def convert_whitelist_to_blacklist(traits: TraitsInfo, trait_mapping: TraitsMapp
                 whitelist = [x for x in whitelist if x not in whitelisted_traits]
 
 
-def load_traits_info() -> tuple[TraitsInfo, TraitsMapping]:
+def load_traits_info() -> Tuple[TraitsInfo, TraitsMapping]:
     workbook = load_workbook("traits_info.xlsx")
     sheet = workbook.active
 
     all_traits_info: TraitsInfo = {}
     trait_number_mapping: TraitsMapping = {}
     errors = []
-    cumulative_weights: dict[str, float] = {}
+    cumulative_weights: Dict[str, float] = {}
 
     # Determine the row with the headers (in case user deletes the top row that has the link)
     header_index = 1
@@ -214,7 +215,7 @@ def load_traits_info() -> tuple[TraitsInfo, TraitsMapping]:
 
 
 # ======================== VALIDATION FUNCTIONS ========================
-def validate_inscription_avoidance(inscription_collection: list[FormattedInscription], all_traits_info: TraitsInfo):
+def validate_inscription_avoidance(inscription_collection: List[FormattedInscription], all_traits_info: TraitsInfo):
     inconsistencies = []
 
     for inscription_index, inscription in enumerate(inscription_collection, start=1):
@@ -240,7 +241,7 @@ def validate_inscription_avoidance(inscription_collection: list[FormattedInscrip
     return inconsistencies
 
 
-def validate_traits(selected_traits: list[TraitInfo], trait_number_mapping: TraitsMapping):
+def validate_traits(selected_traits: List[TraitInfo], trait_number_mapping: TraitsMapping):
     for trait in selected_traits:
         for blacklist_number in trait.blacklist:
             blacklist_trait = trait_number_mapping[blacklist_number]
@@ -253,8 +254,8 @@ def validate_traits(selected_traits: list[TraitInfo], trait_number_mapping: Trai
 # ======================== METADATA GENERATION ========================
 def generate_inscriptions(
         all_traits_info: TraitsInfo, trait_number_mapping: TraitsMapping, num_inscriptions: int
-) -> tuple[list[FormattedInscription], dict, dict[int, int]]:
-    inscription_collection: list[FormattedInscription] = []
+) -> Tuple[List[FormattedInscription], Dict, Dict[int, int]]:
+    inscription_collection: List[FormattedInscription] = []
     traits_usage = {
         trait_type: {
             trait_name: {
@@ -276,9 +277,9 @@ def generate_inscriptions(
                 last_update_time = time.time()
                 print(f'Generated {len(inscription_collection)}/{num_inscriptions}')
 
-            inscription_traits: list[TraitInfo] = []
+            inscription_traits: List[TraitInfo] = []
             formatted_traits: FormattedInscription = []
-            current_avoid_list: list[int] = []
+            current_avoid_list: List[int] = []
 
             valid_combination = True
             for trait_group in all_traits_info.values():
@@ -290,7 +291,7 @@ def generate_inscriptions(
                     valid_combination = False
                     break
 
-                weights: list[float] = []
+                weights: List[float] = []
 
                 for trait in available_traits:
                     # Dynamic weight calculation. The weights are recalculated each time based on the current trait
@@ -374,7 +375,7 @@ def main():
     if not os.path.exists("traits_info.xlsx"):
         trait_types = sorted([x for x in os.listdir(ROOT_DIRECTORY) if os.path.isdir(os.path.join(ROOT_DIRECTORY, x))],
                              key=lambda x: (int(x.split('.')[0]), x.split('.')[1]))
-        traits_dict: dict[str, list[str]] = {}
+        traits_dict: Dict[str, List[str]] = {}
 
         for trait_type in trait_types:
             trait_type_name = trait_type.split('. ')[1]
