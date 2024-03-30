@@ -13,12 +13,12 @@ _I'm not a developer, but I enjoy creating tools that might simplify life for ot
 - **Statistics and Summary**: Offers a breakdown of trait usage throughout the collection, with distribution and occurrence frequency of each trait. It's crucial to personally verify that the output aligns with your expectations, as the script doesn't guarantee absolute accuracy.
 
 ### Requirements
-- Python 3.12 or higher
+- Python 3.8 or higher
 - The `openpyxl` library, essential for managing Excel spreadsheets.
 
 ### How to Use
 1. **Setting Up Your Environment**:
-   - Confirm that Python 3.12 is installed on your system. To check the version run `python --version`. Python can be installed from here: [https://www.python.org/downloads/](https://www.python.org/downloads/)
+   - Confirm that Python 3.8 or higher is installed on your system. To check the version run `python --version`. Python can be installed from here: [https://www.python.org/downloads/](https://www.python.org/downloads/)
    - Install the required `openpyxl` library using the command: `pip install openpyxl`.
 
 2. **Configuration**:
