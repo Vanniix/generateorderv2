@@ -93,7 +93,10 @@ def parse_int_set(comma_separated_list: str, error_name: str) -> Set[int]:
 
     for potential_number in str_list:
         try:
-            number_list.add(int(potential_number))
+            float_value = float(potential_number)
+            if not float_value.is_integer():
+                raise ValueError
+            number_list.add(int(float_value))
         except ValueError:
             raise Exception(
                 f"{error_name} contains invalid entry '{potential_number}'. Only whole numbers are allowed.")
@@ -194,11 +197,6 @@ def load_traits_info() -> Tuple[TraitsInfo, TraitsMapping]:
         all_traits_info[trait.type][trait.name] = trait
         trait_number_mapping[trait.number] = trait
 
-    # Normalise weights so they add to 1
-    for trait_type, total_weight in cumulative_weights.items():
-        for trait_name, trait_info in all_traits_info[trait_type].items():
-            trait_info.weight /= total_weight
-
     try:
         convert_whitelist_to_blacklist(all_traits_info, trait_number_mapping)
     except Exception as e:
@@ -210,6 +208,11 @@ def load_traits_info() -> Tuple[TraitsInfo, TraitsMapping]:
             print(error_message)
         print("\nPlease correct the errors in the spreadsheet and try again.")
         exit()
+
+    # Normalise weights so they add to 1
+    for trait_type, total_weight in cumulative_weights.items():
+        for trait_name, trait_info in all_traits_info[trait_type].items():
+            trait_info.weight /= total_weight
 
     return all_traits_info, trait_number_mapping
 
