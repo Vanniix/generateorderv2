@@ -403,7 +403,12 @@ def main():
             print(f"- {inconsistency}")
 
     with open('metadata.json', 'w') as file:
-        json.dump(inscription_collection, file, indent=4)
+        json.dump([
+            {
+                "token id": f"#{i+1}",
+                "attributes": item
+            } for i, item in enumerate(inscription_collection)
+        ], file, indent=4)
 
     traits_inscription_mapping = {}
     for trait_type, traits in all_traits_info.items():

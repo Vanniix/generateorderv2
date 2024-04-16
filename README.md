@@ -1,8 +1,6 @@
 ### Overview
 This script serves as a convenient tool for generating metadata for collections, tailored for compatibility with www.generatord.io. It may not align with the requirements of other platforms. The script allows users to define trait rarities, specify traits that should not coexist, and even consider the absence of a trait ("none") as a valid option.
 
-_I'm not a developer, but I enjoy creating tools that might simplify life for others. A large portion of this script was created by ChatGPT. Me monkey, me type._
-
 ## Features
 - **Spreadsheet Creation**: Creates an organized spreadsheet that users can navigate with ease. This setup facilitates the adjustment of trait rarities and creates rules for trait compatibility.
 
