@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 # ======================== CONFIGURATION ========================
 ROOT_DIRECTORY = 'traits'  # Location of your folder if not in the same directory
+EXCEL_FILE = 'traits_info.xlsx'  # Name of the traits info excel spreadsheet
 
 
 # ======================== TYPES ========================
@@ -58,7 +59,7 @@ def create_spreadsheet(traits_dict: Dict[str, List[str]]) -> None:
 
     # Link to instructions, and merge cells with link in it
     sheet['A1'].value = 'Click here for detailed instructions on how to fill this out'
-    sheet['A1'].hyperlink = 'https://github.com/itsFrankenSense/generateorderv2/blob/main/README.md#how-to-use'
+    sheet['A1'].hyperlink = 'https://github.com/Vanniix/generateorderv2/blob/main/README.md#how-to-use'
     sheet['A1'].style = 'Hyperlink'
     sheet.merge_cells('A1:C1')
 
@@ -82,8 +83,8 @@ def create_spreadsheet(traits_dict: Dict[str, List[str]]) -> None:
         sheet.append([trait_number, trait_type, 'none', '', '', ''])
         trait_number += 1
 
-    workbook.save("traits_info.xlsx")
-    print("\nA file named 'traits_info.xlsx' has been created. "
+    workbook.save(EXCEL_FILE)
+    print(f"\nA file named '{EXCEL_FILE}' has been created. "
           "Please fill in the required information in this file before proceeding.")
 
 
@@ -123,7 +124,7 @@ def convert_whitelist_to_blacklist(traits: TraitsInfo, trait_mapping: TraitsMapp
 
 
 def load_traits_info() -> Tuple[TraitsInfo, TraitsMapping]:
-    workbook = load_workbook("traits_info.xlsx")
+    workbook = load_workbook(EXCEL_FILE)
     sheet = workbook.active
 
     all_traits_info: TraitsInfo = {}
@@ -285,7 +286,9 @@ def generate_inscriptions(
             current_avoid_list: List[int] = []
 
             valid_combination = True
-            for trait_group in all_traits_info.values():
+            trait_types = list(all_traits_info.values())
+            random.shuffle(trait_types)
+            for trait_group in trait_types:
                 available_traits = [trait for trait in trait_group.values()
                                     if trait.number not in current_avoid_list
                                     and len(trait.blacklist & set([t.number for t in inscription_traits])) == 0]
@@ -323,6 +326,9 @@ def generate_inscriptions(
                         "value": selected_trait.name
                     })
 
+            ordered_traits = [list(x.values())[0].type for x in list(all_traits_info.values())]
+            inscription_traits.sort(key=lambda x: ordered_traits.index(x.type))
+            formatted_traits.sort(key=lambda x: ordered_traits.index(x['trait_type']))
             string_repr = str([(trait.type, trait.name) for trait in inscription_traits])
             inscription_hash = hashlib.sha256(string_repr.encode()).hexdigest()
             if inscription_hash in generated_hashes or not valid_combination:
@@ -375,7 +381,7 @@ def generate_inscriptions(
 def main():
     print("Collection Metadata Generator\n")
 
-    if not os.path.exists("traits_info.xlsx"):
+    if not os.path.exists(EXCEL_FILE):
         trait_types = sorted([x for x in os.listdir(ROOT_DIRECTORY) if os.path.isdir(os.path.join(ROOT_DIRECTORY, x))],
                              key=lambda x: (int(x.split('.')[0]), x.split('.')[1]))
         traits_dict: Dict[str, List[str]] = {}
@@ -387,7 +393,7 @@ def main():
             traits_dict[trait_type_name] = [trait for trait in traits if len(trait) > 0]
         create_spreadsheet(traits_dict)
 
-    input("\nPress Enter after you have updated the 'traits_info.xlsx' file with the required information...")
+    input(f"\nPress Enter after you have updated the '{EXCEL_FILE}' file with the required information...")
 
     all_traits_info, trait_number_mapping = load_traits_info()
     num_inscriptions = get_positive_integer("\nEnter the number of Inscriptions you want to generate metadata for: ")

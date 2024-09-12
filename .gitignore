@@ -5,3 +5,5 @@ trait_usage_statistics.json
 traits.json
 traits_info.xlsx
 .DS_Store
+*.xlsx
+output
